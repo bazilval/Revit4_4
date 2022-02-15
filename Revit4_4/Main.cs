@@ -14,12 +14,94 @@ namespace Revit4_4
     {
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
         {
-            Document doc = commandData.Application.ActiveUIDocument.Document;
-            List<Level> levelList = GetLevels(doc);
+            try
+            {
+                Document doc = commandData.Application.ActiveUIDocument.Document;
+                List<Level> levelList = GetLevels(doc);
 
-            var walls = CreateWalls(doc, levelList, 10000, 5000);
+                var walls = CreateWalls(doc, levelList, 10000, 5000);
+                var door = CreateDoor(doc, levelList[0], walls[0]);
+                List<FamilyInstance> windows = new List<FamilyInstance>();
+                for (int i = 1; i < 4; i++)
+                {
+                    windows.Add(CreateWindow(doc, levelList[0], walls[i]));
+                }
+            }
+            catch (Exception ex)
+            {
+                message = ex.Message;
+                return Result.Failed;
+            }
 
             return Result.Succeeded;
+        }
+
+        public FamilyInstance CreateDoor(Document doc, Level level, Wall wall)
+        {
+            var doorType = new FilteredElementCollector(doc)
+                                .OfClass(typeof(FamilySymbol))
+                                .OfCategory(BuiltInCategory.OST_Doors)
+                                .OfType<FamilySymbol>()
+                                .FirstOrDefault();
+
+            var wallCurve = wall.Location as LocationCurve;
+            XYZ point = (wallCurve.Curve.GetEndPoint(0) + wallCurve.Curve.GetEndPoint(1)) / 2;
+            FamilyInstance door = null;
+            try
+            {
+                using (var ts = new Transaction(doc, "Creating of door"))
+                {
+                    ts.Start();
+                    if (!doorType.IsActive)
+                        doorType.Activate();
+
+                    door = doc.Create.NewFamilyInstance(point, doorType, wall, level, Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
+
+                    ts.Commit();
+                }
+            }
+            catch (Exception)
+            {
+
+                throw;
+            }
+
+            return door;
+        }
+
+        public FamilyInstance CreateWindow(Document doc, Level level, Wall wall)
+        {
+            var windowType = new FilteredElementCollector(doc)
+                                .OfClass(typeof(FamilySymbol))
+                                .OfCategory(BuiltInCategory.OST_Windows)
+                                .OfType<FamilySymbol>()
+                                .FirstOrDefault();
+            
+
+            var wallCurve = wall.Location as LocationCurve;
+            XYZ point = (wallCurve.Curve.GetEndPoint(0) + wallCurve.Curve.GetEndPoint(1)) / 2;
+            point = new XYZ(point.X, point.Y, UnitUtils.ConvertToInternalUnits(1500, DisplayUnitType.DUT_MILLIMETERS));
+            FamilyInstance window = null;
+            try
+            {
+                using (var ts = new Transaction(doc, "Creating of window"))
+                {
+                    ts.Start();
+                    if (!windowType.IsActive)
+                        windowType.Activate();
+
+                    window = doc.Create.NewFamilyInstance(point, windowType, wall, level, Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
+
+                    ts.Commit();
+                }
+            }
+            catch (Exception)
+            {
+
+                throw;
+            }
+
+            return window;
         }
 
         private List<Wall> CreateWalls(Document doc, List<Level> levelList, double width, double depth)
