@@ -1,4 +1,5 @@
-﻿using Autodesk.Revit.Attributes;
+﻿using Autodesk.Revit.ApplicationServices;
+using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using System;
@@ -26,6 +27,7 @@ namespace Revit4_4
                 {
                     windows.Add(CreateWindow(doc, levelList[0], walls[i]));
                 }
+                var roof = CreateRoof(doc, levelList[1], walls);
             }
             catch (Exception ex)
             {
@@ -34,6 +36,53 @@ namespace Revit4_4
             }
 
             return Result.Succeeded;
+        }
+
+        private RoofBase CreateRoof(Document doc, Level level, List<Wall> walls)
+        {
+            var roofType = new FilteredElementCollector(doc)
+                                .OfClass(typeof(RoofType))
+                                .OfType<RoofType>()
+                                .Where(x => x.Name.Equals("Типовой - 400мм"))
+                                .Where(x => x.FamilyName.Equals("Базовая крыша"))
+                                .FirstOrDefault();
+            List<XYZ> points = new List<XYZ>();
+            foreach (var wall in walls)
+            {
+                LocationCurve wallCurve = wall.Location as LocationCurve;
+                points.Add(wallCurve.Curve.GetEndPoint(1));
+            }
+
+            Application app = doc.Application;
+            //CurveArray curveArray = app.Create.NewCurveArray();
+            //for (int i = 0; i < 4; i++)
+            //{
+            //    LocationCurve curve = walls[i].Location as LocationCurve;
+            //    Line line = Line.CreateBound(curve.Curve.GetEndPoint(0) + points[i], curve.Curve.GetEndPoint(1) + points[i + 1]);
+            //    curveArray.Append(line);
+            //}
+
+            CurveArray curveArray = new CurveArray();
+            double wallHeight = walls[0].get_Parameter(BuiltInParameter.WALL_USER_HEIGHT_PARAM).AsDouble();
+            double dt = walls[0].Width / 2;
+            XYZ point1 = new XYZ(points[0].X + dt, points[0].Y - dt, wallHeight);
+            XYZ point2 = new XYZ(points[1].X - dt, points[1].Y + dt, wallHeight);
+            XYZ highPoint = (points[0] + points[1]) / 2 + new XYZ(dt, 0, points[0].DistanceTo(points[1]) / 2 + wallHeight);
+            curveArray.Append(Line.CreateBound(point1, highPoint));
+            curveArray.Append(Line.CreateBound(highPoint, point2));
+
+            ExtrusionRoof roof = null;
+
+            using (Transaction tr = new Transaction(doc, "Create ExtrusionRoof"))
+            {
+                tr.Start();
+                ReferencePlane plane = doc.Create.NewReferencePlane2(point1, new XYZ(point1.X, point1.Y, highPoint.Z), new XYZ(highPoint.X, highPoint.Y, point1.Z), doc.ActiveView);
+                roof = doc.Create.NewExtrusionRoof(curveArray, plane, level, roofType, 0, points[0].DistanceTo(points[3]) + dt * 2);
+                tr.Commit();
+            }
+
+            return roof;
+
         }
 
         public FamilyInstance CreateDoor(Document doc, Level level, Wall wall)
@@ -76,7 +125,7 @@ namespace Revit4_4
                                 .OfCategory(BuiltInCategory.OST_Windows)
                                 .OfType<FamilySymbol>()
                                 .FirstOrDefault();
-            
+
 
             var wallCurve = wall.Location as LocationCurve;
             XYZ point = (wallCurve.Curve.GetEndPoint(0) + wallCurve.Curve.GetEndPoint(1)) / 2;
